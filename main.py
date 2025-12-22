@@ -7,6 +7,14 @@ import json
 import plotly.graph_objects as go
 import plotly.express as px
 from prediction_service import create_service, PredictionResponse
+from config import (
+    PAGE_CONFIG, SUPPORTED_IMAGE_TYPES, LOCATION_DISPLAY_NAMES,
+    AGE_MIN, AGE_MAX, AGE_DEFAULT, DIAMETER_MIN, DIAMETER_MAX,
+    DIAMETER_DEFAULT, DIAMETER_STEP, SEX_OPTIONS, get_risk_color,
+    CHART_COLORS, GAUGE_CONFIG, FEATURES_PER_ROW, MODEL_INFO,
+    APP_TITLE, APP_SUBTITLE, FOOTER_HTML, ERROR_MESSAGES,
+    SUCCESS_MESSAGES, API_BASE_URL, map_location_to_api
+)
 
 
 def load_icon(icon_path):
@@ -174,19 +182,7 @@ def show_instructions():
         """, unsafe_allow_html=True)
 
 
-def get_risk_color(risk_category: str) -> tuple:
-    """
-    Get color scheme for risk category
-
-    Returns:
-        tuple: (primary_color, background_color, icon)
-    """
-    risk_colors = {
-        "low": ("#22c55e", "#f0fdf4", "✅"),
-        "medium": ("#f59e0b", "#fffbeb", "⚠️"),
-        "high": ("#ef4444", "#fef2f2", "🚨")
-    }
-    return risk_colors.get(risk_category.lower(), ("#6b7280", "#f3f4f6", "ℹ️"))
+# Removed - now using get_risk_color from config
 
 
 def display_risk_assessment(response: PredictionResponse):
@@ -225,26 +221,26 @@ def display_risk_assessment(response: PredictionResponse):
         title={'text': "Malignancy Risk (%)", 'font': {'size': 24, 'color': '#1f2937'}},
         number={'suffix': "%", 'font': {'size': 40}},
         gauge={
-            'axis': {'range': [0, 100], 'tickwidth': 2, 'tickcolor': color},
+            'axis': {'range': GAUGE_CONFIG['range'], 'tickwidth': 2, 'tickcolor': color},
             'bar': {'color': color, 'thickness': 0.75},
             'bgcolor': "white",
             'borderwidth': 2,
             'bordercolor': "#e5e7eb",
             'steps': [
-                {'range': [0, 30], 'color': '#f0fdf4'},
-                {'range': [30, 70], 'color': '#fffbeb'},
-                {'range': [70, 100], 'color': '#fef2f2'}
+                {'range': GAUGE_CONFIG['low_range'], 'color': '#f0fdf4'},
+                {'range': GAUGE_CONFIG['medium_range'], 'color': '#fffbeb'},
+                {'range': GAUGE_CONFIG['high_range'], 'color': '#fef2f2'}
             ],
             'threshold': {
                 'line': {'color': "red", 'width': 4},
                 'thickness': 0.75,
-                'value': 70
+                'value': GAUGE_CONFIG['threshold_value']
             }
         }
     ))
 
     fig.update_layout(
-        height=300,
+        height=GAUGE_CONFIG['height'],
         margin=dict(l=20, r=20, t=60, b=20),
         paper_bgcolor="rgba(0,0,0,0)",
         font={'family': "Inter, sans-serif"}
@@ -317,7 +313,7 @@ def display_model_breakdown(response: PredictionResponse):
             y=[response.model_a_probability * 100,
                response.final_probability * 100,
                response.model_c_probability * 100],
-            marker_color=['#3b82f6', '#8b5cf6', '#22c55e'],
+            marker_color=[CHART_COLORS['model_a'], CHART_COLORS['ensemble'], CHART_COLORS['model_c']],
             text=[f"{response.model_a_probability:.1%}",
                   f"{response.final_probability:.1%}",
                   f"{response.model_c_probability:.1%}"],
@@ -358,10 +354,9 @@ def display_extracted_features(response: PredictionResponse):
 
         # Display features in a grid
         num_features = len(response.extracted_features)
-        cols_per_row = 6
 
-        for i in range(0, num_features, cols_per_row):
-            cols = st.columns(cols_per_row)
+        for i in range(0, num_features, FEATURES_PER_ROW):
+            cols = st.columns(FEATURES_PER_ROW)
             for j, col in enumerate(cols):
                 idx = i + j
                 if idx < num_features:
@@ -416,19 +411,14 @@ def display_prediction_results(response: PredictionResponse, input_metadata: dic
 
 def main():
     # Configure page
-    st.set_page_config(
-        page_title="Skin Lesion Analyzer",
-        page_icon="🩺",
-        layout="wide",
-        initial_sidebar_state="collapsed"
-    )
+    st.set_page_config(**PAGE_CONFIG)
 
     # Apply custom styles
     apply_custom_styles()
 
     # Main title
-    st.title("Skin Lesion Triage Tool")
-    st.markdown("### Prototype for Dermatological Image Assessment")
+    st.title(APP_TITLE)
+    st.markdown(f"### {APP_SUBTITLE}")
 
     # Show instructions
     show_instructions()
@@ -440,7 +430,7 @@ def main():
         st.markdown(f"### {get_icon_html('camera', 24)} Lesion Image", unsafe_allow_html=True)
         uploaded_file = st.file_uploader(
             "Select a lesion image",
-            type=["png", "jpg", "jpeg"],
+            type=SUPPORTED_IMAGE_TYPES,
             help="Upload a clear and well-lit photo of the skin lesion"
         )
 
@@ -456,15 +446,15 @@ def main():
 
         age = st.number_input(
             "Patient age",
-            min_value=0,
-            max_value=120,
-            value=30,
+            min_value=AGE_MIN,
+            max_value=AGE_MAX,
+            value=AGE_DEFAULT,
             help="Enter age in years"
         )
 
         sex = st.selectbox(
             "Sex",
-            ["Male", "Female"],
+            SEX_OPTIONS,
             help="Select patient's sex"
         )
 
@@ -472,24 +462,16 @@ def main():
 
         lesion_location = st.selectbox(
             "Lesion location",
-            [
-                "Head and Neck",
-                "Torso Front",
-                "Torso Back",                
-                "Left Leg",
-                "Right Leg",
-                "Left Arm",
-                "Right Arm",                
-            ],
+            list(LOCATION_DISPLAY_NAMES.keys()),
             help="Select the anatomical location of the lesion"
         )
 
         lesion_diameter_mm = st.number_input(
             "Lesion diameter (mm)",
-            min_value=0.0,
-            max_value=200.0,
-            value=5.0,
-            step=0.5,
+            min_value=DIAMETER_MIN,
+            max_value=DIAMETER_MAX,
+            value=DIAMETER_DEFAULT,
+            step=DIAMETER_STEP,
             help="Enter approximate diameter in millimeters"
         )
 
@@ -502,12 +484,12 @@ def main():
 
     if analyze_button:
         if image is None:
-            st.error("⚠️ Please upload an image before continuing with the analysis.")
+            st.error(ERROR_MESSAGES["no_image"])
         else:
             with st.spinner("Analyzing image..."):
                 try:
                     # Create prediction service
-                    prediction_service = create_service(base_url="http://localhost:8001")
+                    prediction_service = create_service()
 
                     # Reset file pointer to beginning
                     uploaded_file.seek(0)
@@ -516,17 +498,8 @@ def main():
                     # Convert sex to lowercase as API expects
                     api_sex = sex.lower()
 
-                    # Map location to API format (lowercase)
-                    location_mapping = {
-                        "Head and Neck": "head & neck",
-                        "Torso Front": "torso front",
-                        "Torso Back": "torso back",
-                        "Left Leg": "left leg",
-                        "Right Leg": "right leg",
-                        "Left Arm": "left arm",
-                        "Right Arm": "right arm"
-                    }
-                    api_location = location_mapping.get(lesion_location, lesion_location.lower())
+                    # Map location to API format using config
+                    api_location = map_location_to_api(lesion_location)
 
                     # Submit prediction
                     response = prediction_service.submit_prediction(
@@ -560,21 +533,13 @@ def main():
                     display_prediction_results(response, input_metadata)
 
                 except Exception as e:
-                    st.error(f"❌ Error during analysis: {str(e)}")
+                    st.error(ERROR_MESSAGES["prediction_failed"].format(error=str(e)))
                     print(f"ERROR: {str(e)}")
-                    st.info("💡 Make sure the backend API is running at http://localhost:8001")
+                    st.info(ERROR_MESSAGES["api_connection"].format(api_url=API_BASE_URL))
 
     # Footer
     st.markdown("---")
-    st.markdown(
-        "<p style='text-align: center; color: #6b7280; font-size: 0.9rem;'>"
-        "Skin Lesion Triage Prototype<br>"
-        "<strong>For research purposes only, always consult a medical professional</strong><br>"
-        "Developed as part of Dissertation project of MSc Artificial Intelligence Technology, Northumbria University London<br>"
-        "This prototype was fueled by lots of coffee, persistence, late night coding, and a little AI magic!"
-        "</p>",
-        unsafe_allow_html=True
-    )
+    st.markdown(FOOTER_HTML, unsafe_allow_html=True)
 
 
 if __name__ == "__main__":

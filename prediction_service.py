@@ -8,6 +8,7 @@ including health checks and prediction requests.
 import requests
 from typing import Dict, Any, Optional
 from dataclasses import dataclass
+from config import API_BASE_URL, API_TIMEOUT, VALID_ANATOMICAL_LOCATIONS
 
 
 @dataclass
@@ -27,15 +28,15 @@ class PredictionResponse:
 class PredictionService:
     """Service to interact with the Skin Lesion AI backend API"""
 
-    def __init__(self, base_url: str = "http://localhost:8001"):
+    def __init__(self, base_url: str = None):
         """
         Initialize the prediction service
 
         Args:
-            base_url: Base URL of the backend API
+            base_url: Base URL of the backend API (defaults to config.API_BASE_URL)
         """
-        self.base_url = base_url.rstrip('/')
-        self.timeout = 30  # seconds
+        self.base_url = (base_url or API_BASE_URL).rstrip('/')
+        self.timeout = API_TIMEOUT
 
     def check_health(self) -> Dict[str, str]:
         """
@@ -169,26 +170,15 @@ class PredictionService:
         Raises:
             ValueError: If validation fails
         """
-        # Valid anatomical locations according to API spec
-        valid_locations = [
-            "torso front",
-            "torso back",
-            "head & neck",
-            "left leg",
-            "right leg",
-            "left arm",
-            "right arm"
-        ]
-
         if not (0 <= age <= 120):
             raise ValueError(f"Age must be between 0 and 120, got {age}")
 
         if sex.lower() not in ["male", "female"]:
             raise ValueError(f"Sex must be 'male' or 'female', got {sex}")
 
-        if location.lower() not in valid_locations:
+        if location.lower() not in VALID_ANATOMICAL_LOCATIONS:
             raise ValueError(
-                f"Location must be one of {valid_locations}, got {location}"
+                f"Location must be one of {VALID_ANATOMICAL_LOCATIONS}, got {location}"
             )
 
         if diameter <= 0:
@@ -196,12 +186,12 @@ class PredictionService:
 
 
 # Utility function for easy import
-def create_service(base_url: str = "http://localhost:8001") -> PredictionService:
+def create_service(base_url: str = None) -> PredictionService:
     """
     Factory function to create a PredictionService instance
 
     Args:
-        base_url: Base URL of the backend API
+        base_url: Base URL of the backend API (defaults to config.API_BASE_URL)
 
     Returns:
         Configured PredictionService instance
