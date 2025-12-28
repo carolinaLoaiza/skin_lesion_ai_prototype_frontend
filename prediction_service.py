@@ -14,15 +14,36 @@ from config import API_BASE_URL, API_TIMEOUT, VALID_ANATOMICAL_LOCATIONS
 @dataclass
 class PredictionResponse:
     """Data class for prediction API response"""
-    final_probability: float
     model_a_probability: float
     model_c_probability: float
     extracted_features: list
-    risk_category: str
+    metadata: Dict[str, Any]
+    analysis_id: Optional[str] = None
+
+    def __str__(self):
+        return f"Model A: {self.model_a_probability:.2%} | Model C: {self.model_c_probability:.2%} | Analysis: {self.analysis_id}"
+
+
+@dataclass
+class FeatureContribution:
+    """Data class for individual feature contribution"""
+    feature_name: str
+    display_name: str  # Human-readable feature name
+    shap_value: float
+    feature_value: float
+    impact: str  # "increases" or "decreases"
+
+
+@dataclass
+class ExplainResponse:
+    """Data class for SHAP explanation API response"""
+    prediction: float
+    base_value: float
+    feature_contributions: list  # List of FeatureContribution objects
     metadata: Dict[str, Any]
 
     def __str__(self):
-        return f"Risk: {self.risk_category.upper()} | Probability: {self.final_probability:.2%}"
+        return f"Prediction: {self.prediction:.2%} | Base: {self.base_value:.2%} | Features: {len(self.feature_contributions)}"
 
 
 class PredictionService:
@@ -84,10 +105,106 @@ class PredictionService:
         age: int,
         sex: str,
         location: str,
-        diameter: float
+        diameter: float,
+        patient_id: str,
+        lesion_id: str
     ) -> PredictionResponse:
         """
-        Submit a prediction request to the backend API
+        Submit a prediction request to the backend API and save analysis to database
+
+        Args:
+            image_file: File object or bytes of the image
+            age: Patient age (0-120)
+            sex: Patient sex ("male" or "female")
+            location: Anatomical location of lesion
+            diameter: Lesion diameter in millimeters (> 0)
+            patient_id: Patient ID (required - analysis will be saved to this patient)
+            lesion_id: Lesion ID (required - analysis will be saved to this lesion)
+
+        Returns:
+            PredictionResponse object with prediction results and analysis_id
+
+        Raises:
+            ValueError: If validation fails
+            requests.exceptions.RequestException: If API call fails
+        """
+        # Validate inputs
+        self._validate_inputs(age, sex, location, diameter)
+
+        # Validate patient_id and lesion_id
+        if not patient_id or not patient_id.strip():
+            raise ValueError("patient_id is required")
+        if not lesion_id or not lesion_id.strip():
+            raise ValueError("lesion_id is required")
+
+        # Prepare the multipart form data
+        # Need to ensure the file is properly formatted with filename and content-type
+        # Get the filename from the file object if available
+        filename = getattr(image_file, 'name', 'lesion_image.jpg')
+
+        # Determine content type based on filename extension
+        content_type = 'image/jpeg'
+        if filename.lower().endswith('.png'):
+            content_type = 'image/png'
+        elif filename.lower().endswith('.bmp'):
+            content_type = 'image/bmp'
+        elif filename.lower().endswith(('.tiff', '.tif')):
+            content_type = 'image/tiff'
+
+        files = {
+            'image': (filename, image_file, content_type)
+        }
+
+        data = {
+            'age': age,
+            'sex': sex.lower(),
+            'location': location,
+            'diameter': diameter,
+            'patient_id': patient_id,
+            'lesion_id': lesion_id
+        }
+
+        try:
+            response = requests.post(
+                f"{self.base_url}/api/predict",
+                files=files,
+                data=data,
+                timeout=self.timeout
+            )
+            response.raise_for_status()
+
+            # Parse response
+            result = response.json()
+
+            return PredictionResponse(
+                model_a_probability=result['model_a_probability'],
+                model_c_probability=result['model_c_probability'],
+                extracted_features=result['extracted_features'],
+                metadata=result['metadata'],
+                analysis_id=result.get('analysis_id')
+            )
+
+        except requests.exceptions.HTTPError as e:
+            # Handle HTTP errors with detail from API
+            try:
+                error_detail = response.json().get('detail', str(e))
+            except:
+                error_detail = str(e)
+            raise Exception(f"API Error: {error_detail}")
+
+        except requests.exceptions.RequestException as e:
+            raise Exception(f"Connection error: {str(e)}")
+
+    def get_explanation(
+        self,
+        image_file,
+        age: int,
+        sex: str,
+        location: str,
+        diameter: float
+    ) -> ExplainResponse:
+        """
+        Get SHAP explanation for a prediction
 
         Args:
             image_file: File object or bytes of the image
@@ -97,7 +214,7 @@ class PredictionService:
             diameter: Lesion diameter in millimeters (> 0)
 
         Returns:
-            PredictionResponse object with prediction results
+            ExplainResponse object with SHAP values and feature contributions
 
         Raises:
             ValueError: If validation fails
@@ -106,9 +223,7 @@ class PredictionService:
         # Validate inputs
         self._validate_inputs(age, sex, location, diameter)
 
-        # Prepare the multipart form data
-        # Need to ensure the file is properly formatted with filename and content-type
-        # Get the filename from the file object if available
+        # Prepare the multipart form data (same as prediction)
         filename = getattr(image_file, 'name', 'lesion_image.jpg')
 
         # Determine content type based on filename extension
@@ -133,7 +248,7 @@ class PredictionService:
 
         try:
             response = requests.post(
-                f"{self.base_url}/api/predict",
+                f"{self.base_url}/api/explain",
                 files=files,
                 data=data,
                 timeout=self.timeout
@@ -143,12 +258,22 @@ class PredictionService:
             # Parse response
             result = response.json()
 
-            return PredictionResponse(
-                final_probability=result['final_probability'],
-                model_a_probability=result['model_a_probability'],
-                model_c_probability=result['model_c_probability'],
-                extracted_features=result['extracted_features'],
-                risk_category=result['risk_category'],
+            # Convert feature contributions to FeatureContribution objects
+            feature_contributions = [
+                FeatureContribution(
+                    feature_name=fc['feature_name'],
+                    display_name=fc['display_name'],
+                    shap_value=fc['shap_value'],
+                    feature_value=fc['feature_value'],
+                    impact=fc['impact']
+                )
+                for fc in result['feature_contributions']
+            ]
+
+            return ExplainResponse(
+                prediction=result['prediction'],
+                base_value=result['base_value'],
+                feature_contributions=feature_contributions,
                 metadata=result['metadata']
             )
 

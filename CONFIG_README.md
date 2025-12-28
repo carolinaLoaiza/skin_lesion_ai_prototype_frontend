@@ -10,7 +10,7 @@ All application settings are centralized in [`config.py`](config.py). This makes
 
 ### Changing the Backend API URL
 
-**Default**: `http://localhost:8001`
+**Default**: `http://localhost:8000`
 
 To change the backend URL, edit `config.py`:
 
@@ -20,8 +20,8 @@ API_BASE_URL = "http://your-new-url:port"
 ```
 
 **Common scenarios:**
-- Local development: `http://localhost:8001`
-- Docker: `http://backend:8001`
+- Local development: `http://localhost:8000`
+- Docker: `http://backend:8000`
 - Production: `https://api.yourapp.com`
 
 ### Changing API Timeout
@@ -239,7 +239,7 @@ api_location = map_location_to_api("Head and Neck")  # Returns "head & neck"
 ### Backend connection fails
 
 - **Solution**: Verify `API_BASE_URL` in config.py matches your backend URL
-- Check backend is running: `curl http://localhost:8001/health`
+- Check backend is running: `curl http://localhost:8000/health`
 
 ## Environment-Specific Configuration
 
@@ -250,7 +250,7 @@ For different environments (dev/staging/prod), you can:
 ```python
 import os
 
-API_BASE_URL = os.getenv("API_URL", "http://localhost:8001")
+API_BASE_URL = os.getenv("API_URL", "http://localhost:8000")
 ```
 
 2. Create separate config files:
