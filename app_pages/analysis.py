@@ -787,16 +787,21 @@ def render_results_section():
             try:
                 prediction_service = create_service()
 
-                # Reset file pointer
-                st.session_state.last_uploaded_file.seek(0)
+                # Get analysis_id from last response
+                if not hasattr(st.session_state, 'last_response'):
+                    raise ValueError("No analysis found. Please run the analysis first.")
 
-                # Get SHAP explanation
+                if not hasattr(st.session_state.last_response, 'analysis_id'):
+                    raise ValueError("Analysis ID not found in response. Please run the analysis again.")
+
+                analysis_id = st.session_state.last_response.analysis_id
+
+                if not analysis_id:
+                    raise ValueError("Analysis ID is empty. Please run the analysis first.")
+
+                # Get SHAP explanation using analysis_id
                 explain_response = prediction_service.get_explanation(
-                    image_file=st.session_state.last_uploaded_file,
-                    age=st.session_state.last_input['age'],
-                    sex=st.session_state.last_input['sex'],
-                    location=st.session_state.last_input['location'],
-                    diameter=st.session_state.last_input['diameter']
+                    analysis_id=analysis_id
                 )
 
                 # Display SHAP explanation (chart with top 5 features)

@@ -5,12 +5,20 @@ This module contains all configuration constants and settings used across the ap
 Centralized configuration makes it easy to modify settings without changing code in multiple places.
 """
 
+import streamlit as st
+
 # =============================================================================
 # API CONFIGURATION
 # =============================================================================
 
 # Backend API base URL
-API_BASE_URL = "http://localhost:8000"
+# In production (Streamlit Cloud), reads from secrets
+# In development (local), uses localhost
+try:
+    API_BASE_URL = st.secrets.get("API_BASE_URL", "http://localhost:8000")
+except:
+    # Fallback if streamlit is not initialized yet or secrets don't exist
+    API_BASE_URL = "http://localhost:8000"
 
 # API request timeout in seconds
 API_TIMEOUT = 30

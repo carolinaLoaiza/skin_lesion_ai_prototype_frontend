@@ -197,60 +197,29 @@ class PredictionService:
 
     def get_explanation(
         self,
-        image_file,
-        age: int,
-        sex: str,
-        location: str,
-        diameter: float
+        analysis_id: str
     ) -> ExplainResponse:
         """
-        Get SHAP explanation for a prediction
+        Get SHAP explanation for a prediction using analysis ID
 
         Args:
-            image_file: File object or bytes of the image
-            age: Patient age (0-120)
-            sex: Patient sex ("male" or "female")
-            location: Anatomical location of lesion
-            diameter: Lesion diameter in millimeters (> 0)
+            analysis_id: The analysis ID returned by submit_prediction
+                        Example: "AN-20251230121330-9f5deef3"
 
         Returns:
             ExplainResponse object with SHAP values and feature contributions
 
         Raises:
-            ValueError: If validation fails
+            ValueError: If analysis_id is empty
             requests.exceptions.RequestException: If API call fails
         """
-        # Validate inputs
-        self._validate_inputs(age, sex, location, diameter)
-
-        # Prepare the multipart form data (same as prediction)
-        filename = getattr(image_file, 'name', 'lesion_image.jpg')
-
-        # Determine content type based on filename extension
-        content_type = 'image/jpeg'
-        if filename.lower().endswith('.png'):
-            content_type = 'image/png'
-        elif filename.lower().endswith('.bmp'):
-            content_type = 'image/bmp'
-        elif filename.lower().endswith(('.tiff', '.tif')):
-            content_type = 'image/tiff'
-
-        files = {
-            'image': (filename, image_file, content_type)
-        }
-
-        data = {
-            'age': age,
-            'sex': sex.lower(),
-            'location': location,
-            'diameter': diameter
-        }
+        # Validate analysis_id
+        if not analysis_id or not analysis_id.strip():
+            raise ValueError("analysis_id is required")
 
         try:
-            response = requests.post(
-                f"{self.base_url}/api/explain",
-                files=files,
-                data=data,
+            response = requests.get(
+                f"{self.base_url}/api/explain/{analysis_id}",
                 timeout=self.timeout
             )
             response.raise_for_status()
@@ -274,7 +243,7 @@ class PredictionService:
                 prediction=result['prediction'],
                 base_value=result['base_value'],
                 feature_contributions=feature_contributions,
-                metadata=result['metadata']
+                metadata=result.get('metadata', {})
             )
 
         except requests.exceptions.HTTPError as e:
